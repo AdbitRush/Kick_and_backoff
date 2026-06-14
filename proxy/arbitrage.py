@@ -10,17 +10,18 @@ except KeyError:
 PORT   = int(os.environ.get('PROXY_PORT', '5555'))
 LEDGER = os.environ.get('LEDGER_PATH', '/tmp/kickbacks_ledger.jsonl')
 
-# Best free models on OpenRouter — slower = more ad impressions = more earnings
+# Largest free models = slowest responses = most ad impressions per query
 FREE_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "qwen/qwen3-coder:free",
     "qwen/qwen-2.5-72b-instruct:free",
 ]
-PAID_MODEL    = "deepseek/deepseek-chat-v3-5:free"
-PAID_COST_PER_M = (0.27 / 1e6, 1.10 / 1e6)
+PAID_MODEL      = "deepseek/deepseek-chat-v3-5:free"  # free tier, last resort
+PAID_COST_PER_M = (0.27 / 1e6, 1.10 / 1e6)           # DeepSeek paid pricing if needed
 
-q = 0; total_cost = 0.0; total_thinking_ms = 0; start_time = time.time()
+q = 0; total_cost = 0.0; total_thinking_ms = 0; rate_limit_counts = {}
+start_time = time.time()
 
 def append_ledger(d):
     with open(LEDGER, 'a') as f:
@@ -29,11 +30,32 @@ def append_ledger(d):
 def write_status():
     elapsed = time.time() - start_time
     with open('/tmp/kickbacks_status.txt', 'w') as f:
-        f.write(f"Kickbacks Arbitrage\nUptime: {elapsed/3600:.1f}h\nQueries: {q}\nThinking: {total_thinking_ms/1000:.1f}s\nCost: ${total_cost:.6f}\n")
+        f.write(f"Kickbacks Arbitrage\nUptime: {elapsed/3600:.1f}h\nQueries: {q}\n"
+                f"Thinking: {total_thinking_ms/1000:.1f}s\nCost: ${total_cost:.6f}\n")
 
 atexit.register(write_status)
 
+def get_stats():
+    elapsed = time.time() - start_time
+    impressions = total_thinking_ms / 5000.0
+    return {
+        "uptime_h":       round(elapsed / 3600, 2),
+        "queries":        q,
+        "thinking_s":     round(total_thinking_ms / 1000, 1),
+        "impressions":    round(impressions, 1),
+        "est_earnings":   round(impressions * 0.0025, 6),
+        "cost_usd":       round(total_cost, 6),
+        "free_models":    FREE_MODELS,
+        "rate_limits":    rate_limit_counts,
+    }
+
 class P(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ('/stats', '/health'):
+            self._send(200, get_stats())
+        else:
+            self._send(404, {"error": "not found"})
+
     def do_HEAD(self):
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
@@ -51,7 +73,7 @@ class P(http.server.BaseHTTPRequestHandler):
         oai = self._to_openai(msg)
         mt  = min(msg.get('max_tokens', 2048), 4096)
 
-        t1 = time.time()
+        t1  = time.time()
         res, used, is_free, model_cost = None, None, False, 0.0
 
         offset  = q % len(FREE_MODELS)
@@ -61,6 +83,11 @@ class P(http.server.BaseHTTPRequestHandler):
             if res and res.get('choices'):
                 used, is_free = model, True
                 break
+            # Track which models are rate-limiting
+            if res and isinstance(res.get('error'), (str, dict)):
+                err_str = str(res.get('error', ''))
+                if '429' in err_str or 'rate' in err_str.lower():
+                    rate_limit_counts[model] = rate_limit_counts.get(model, 0) + 1
 
         if not res or not res.get('choices'):
             res = self._call(PAID_MODEL, oai, mt)
@@ -85,7 +112,7 @@ class P(http.server.BaseHTTPRequestHandler):
             })
             self._send(200, self._to_anthropic(res, om, ms))
         else:
-            err = str(res.get('error', 'fail'))[:200] if res else 'no response'
+            err = str(res.get('error', 'all models failed'))[:200] if res else 'no response'
             self._send(502, {"type":"error","error":{"message":err}})
 
     def _call(self, model, messages, max_tokens):
@@ -116,10 +143,12 @@ class P(http.server.BaseHTTPRequestHandler):
         msgs = []; sys_t = None
         if 'system' in msg:
             t = msg['system']
-            sys_t = t if isinstance(t, str) else ' '.join(b.get('text','') for b in t if isinstance(b,dict) and b.get('type')=='text')
+            sys_t = t if isinstance(t, str) else ' '.join(
+                b.get('text','') for b in t if isinstance(b, dict) and b.get('type') == 'text')
         for m in msg.get('messages', []):
             c = m.get('content','')
-            if isinstance(c, list): c = '\n'.join(b.get('text','') for b in c if isinstance(b,dict) and b.get('type')=='text')
+            if isinstance(c, list):
+                c = '\n'.join(b.get('text','') for b in c if isinstance(b, dict) and b.get('type') == 'text')
             msgs.append({"role": m['role'], "content": c or ''})
         if sys_t: msgs.insert(0, {"role":"system","content":sys_t})
         return msgs
@@ -133,8 +162,8 @@ class P(http.server.BaseHTTPRequestHandler):
             "content": [{"type":"text","text":text}], "model": om,
             "stop_reason": c.get('finish_reason','end_turn'), "stop_sequence": None,
             "usage": {
-                "input_tokens":    int(u.get('prompt_tokens',0) or 0),
-                "output_tokens":   int(u.get('completion_tokens',0) or 0),
+                "input_tokens":     int(u.get('prompt_tokens',0) or 0),
+                "output_tokens":    int(u.get('completion_tokens',0) or 0),
                 "thinking_time_ms": ms,
             }
         }
@@ -153,6 +182,6 @@ if __name__ == '__main__':
     if not OR_KEY:
         print("FATAL: OPENROUTER_API_KEY not set"); sys.exit(1)
     sv = http.server.HTTPServer(('127.0.0.1', PORT), P)
-    print(f"Arbitrage Proxy :{PORT} | {len(FREE_MODELS)} free models | ledger: {LEDGER}")
+    print(f"Arbitrage Proxy :{PORT} | {len(FREE_MODELS)} free models | /stats for live data")
     write_status()
     sv.serve_forever()
