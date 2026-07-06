@@ -28,6 +28,20 @@ That's it. The installer:
 
 **Requirements:** Ubuntu 20.04+ / Debian 11+ / any systemd Linux. 512MB RAM minimum.
 
+## 🛡 Kickbacks Guard — never lose money to a silent logout
+
+The session/extension used to log out silently: proxy runs, nothing earns.
+`guard/kickbacks_guard.py` fixes that:
+
+- checks kickbacks.ai/me every 30 min in a **persistent headless profile** (visits keep the session alive)
+- if logged out → **auto re-login** from `kickbacks_settings.env`
+- if it can't recover → **Windows toast + optional Telegram alert** (set `GUARD_TG_TOKEN` + `GUARD_TG_CHAT`)
+- tracks balance in `guard/ledger.jsonl`; if the proxy served queries but balance is flat → "extension logged out" alert
+- `--once` (cron / Task Scheduler) · `--daemon` (PM2) · `--status`
+
+Running now on this machine as PM2 app `kickbacks-guard` (`pm2 save`d, resurrects at logon).
+Alternative install: `powershell -ExecutionPolicy Bypass -File guard\install_guard_task.ps1` (needs admin).
+
 ---
 
 ## Daily Use

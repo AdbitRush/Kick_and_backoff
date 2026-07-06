@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .env
 .env.*
+guard/profile/
+guard/status.json
+guard/ledger.jsonl
+kickbacks_settings.env
