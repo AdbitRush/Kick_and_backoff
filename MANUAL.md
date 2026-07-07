@@ -34,8 +34,8 @@ No pip packages needed. The proxy uses Python standard library only.
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/AdbitRush/Kick_Ai.git
-cd Kick_Ai
+git clone https://github.com/AdbitRush/Kick_and_backoff.git ~/kickbacks
+cd ~/kickbacks
 ```
 
 ### 2. Set your OpenRouter key

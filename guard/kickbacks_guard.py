@@ -163,11 +163,18 @@ def check_session() -> dict:
                 if email_el and pass_el:
                     email_el.fill(user)
                     pass_el.fill(pw)
-                    btn = (page.query_selector('button[type="submit"]')
-                           or page.query_selector("button"))
-                    if btn:
-                        btn.click()
+                    # submit buttons on kickbacks.ai stay disabled until a JS
+                    # validation tick — pressing Enter in the password field is
+                    # the reliable path; clicking is only a fallback.
+                    try:
+                        pass_el.press("Enter")
                         page.wait_for_load_state("networkidle", timeout=45000)
+                    except Exception:
+                        btn = (page.query_selector('button[type="submit"]:not([disabled])')
+                               or page.query_selector("button:not([disabled])"))
+                        if btn:
+                            btn.click(timeout=10000)
+                            page.wait_for_load_state("networkidle", timeout=45000)
                     page.goto(f"{BASE}/me", wait_until="networkidle", timeout=45000)
                     result["relogin_ok"] = is_logged_in()
 
