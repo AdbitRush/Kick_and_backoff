@@ -10,14 +10,17 @@ except KeyError:
 PORT   = int(os.environ.get('PROXY_PORT', '5555'))
 LEDGER = os.environ.get('LEDGER_PATH', '/tmp/kickbacks_ledger.jsonl')
 
-# Largest free models = slowest responses = most ad impressions per query
+# Largest free models = slowest responses = most ad impressions per query.
+# Slugs re-verified against https://openrouter.ai/api/v1/models on 2026-08-17 —
+# OpenRouter retires :free slugs regularly and a retired one is
+# indistinguishable from a rate-limited one from inside the proxy.
 FREE_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-coder:free",
-    "qwen/qwen-2.5-72b-instruct:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openai/gpt-oss-20b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
 ]
-PAID_MODEL      = "deepseek/deepseek-chat-v3-5:free"  # free tier, last resort
+PAID_MODEL      = "nvidia/nemotron-3-nano-30b-a3b:free"  # free tier, last resort
 PAID_COST_PER_M = (0.27 / 1e6, 1.10 / 1e6)           # DeepSeek paid pricing if needed
 
 q = 0; total_cost = 0.0; total_thinking_ms = 0; rate_limit_counts = {}
